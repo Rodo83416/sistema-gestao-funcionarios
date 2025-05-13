@@ -4008,6 +4008,606 @@ function processJSONBackup(file) {
     
     reader.readAsText(file, 'UTF-8');
 }
+        // Função para analisar linha CSV
+function parseCSVLine(line) {
+    const result = [];
+    let current = '';
+    let inQuotes = false;
+    
+    for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        
+        if (char === '"') {
+            // Se já estamos dentro de aspas e o próximo caractere também é aspas,
+            // isso é um escape para aspas dentro de um campo
+            if (inQuotes && line[i + 1] === '"') {
+                current += '"';
+                i++; // Pular a próxima aspas
+            } else {
+                // Alternar estado de aspas
+                inQuotes = !inQuotes;
+            }
+        } else if (char === ',' && !inQuotes) {
+            // Final de um campo
+            result.push(current);
+            current = '';
+        } else {
+            // Caractere normal
+            current += char;
+        }
+    }
+    
+    // Adicionar o último campo
+    result.push(current);
+    
+    return result;
+}
+
+// Função para processar dados CSV
+function processCSVData(type, headers, lines) {
+    const now = new Date().toISOString();
+    let count = 0;
+    
+    try {
+        switch (type) {
+            case 'supervisors':
+                return importSupervisors(headers, lines);
+                
+            case 'workstations':
+                return importWorkstations(headers, lines);
+                
+            case 'employees':
+                return importEmployees(headers, lines);
+                
+            case 'allocations':
+                return importAllocations(headers, lines);
+                
+            default:
+                return { success: false, error: 'Tipo de importação desconhecido' };
+        }
+    } catch (error) {
+        console.error(`Erro ao processar dados de ${type}:`, error);
+        return { success: false, error: error.message };
+    }
+}
+
+// Função para importar supervisores
+function importSupervisors(headers, lines) {
+    // Verificar cabeçalhos esperados
+    const requiredHeaders = ['Nome', 'Código/Matrícula'];
+    
+    for (const header of requiredHeaders) {
+        if (!headers.some(h => h.trim() === header)) {
+            return { success: false, error: `Cabeçalho obrigatório não encontrado: ${header}` };
+        }
+    }
+    
+    // Índices das colunas
+    const nameIndex = headers.findIndex(h => h.trim() === 'Nome');
+    const codeIndex = headers.findIndex(h => h.trim() === 'Código/Matrícula');
+    
+    let count = 0;
+    const now = new Date().toISOString();
+    
+    // Processar linhas de dados (pular cabeçalho)
+    for (let i = 1; i < lines.length; i++) {
+        if (lines[i].trim() === '') continue;
+        
+        const values = parseCSVLine(lines[i]);
+        
+        // Pular se não tiver os dados mínimos necessários
+        if (values.length <= Math.max(nameIndex, codeIndex) || !values[nameIndex] || !values[codeIndex]) {
+            console.warn(`Linha ${i+1} ignorada: dados insuficientes`);
+            continue;
+        }
+        
+        const name = values[nameIndex].trim();
+        const idCode = values[codeIndex].trim();
+        
+        // Verificar se já existe supervisor com mesmo código
+        const existingSupervisor = AppData.supervisors.find(s => s.idCode === idCode);
+        
+        if (existingSupervisor) {
+            // Atualizar supervisor existente
+            existingSupervisor.name = name;
+            existingSupervisor.updatedAt = now;
+        } else {
+            // Criar novo supervisor
+            const newId = AppData.lastSupervisorId + 1;
+            const newSupervisor = {
+                id: newId,
+                name: name,
+                idCode: idCode,
+                workstationIds: [],
+                createdAt: now,
+                updatedAt: now
+            };
+            
+            AppData.supervisors.push(newSupervisor);
+            AppData.lastSupervisorId = newId;
+        }
+        
+        count++;
+    }
+    
+    return { success: true, count };
+}
+
+// Função para importar postos de trabalho
+function importWorkstations(headers, lines) {
+    // Verificar cabeçalhos esperados
+    const requiredHeaders = ['Nome', 'Capacidade', 'SupervisorID'];
+    
+    for (const header of requiredHeaders) {
+        if (!headers.some(h => h.trim() === header || h.trim() === header.replace('ID', ''))) {
+            return { success: false, error: `Cabeçalho obrigatório não encontrado: ${header}` };
+        }
+    }
+    
+    // Índices das colunas
+    const nameIndex = headers.findIndex(h => h.trim() === 'Nome');
+    const capacityIndex = headers.findIndex(h => h.trim() === 'Capacidade');
+    const alertIndex = headers.findIndex(h => h.trim() === 'LimiteAlerta');
+    const supervisorIndex = headers.findIndex(h => h.trim() === 'SupervisorID' || h.trim() === 'Supervisor');
+    const descIndex = headers.findIndex(h => h.trim() === 'Descrição');
+    
+    let count = 0;
+    const now = new Date().toISOString();
+    
+    // Processar linhas de dados (pular cabeçalho)
+    for (let i = 1; i < lines.length; i++) {
+        if (lines[i].trim() === '') continue;
+        
+        const values = parseCSVLine(lines[i]);
+        
+        // Pular se não tiver os dados mínimos necessários
+        if (values.length <= Math.max(nameIndex, capacityIndex, supervisorIndex) || 
+            !values[nameIndex] || !values[capacityIndex]) {
+            console.warn(`Linha ${i+1} ignorada: dados insuficientes`);
+            continue;
+        }
+        
+        const name = values[nameIndex].trim();
+        const capacity = parseInt(values[capacityIndex]);
+        const warningThreshold = alertIndex >= 0 && values[alertIndex] ? parseInt(values[alertIndex]) : 80;
+        const supervisorIdRaw = values[supervisorIndex] ? values[supervisorIndex].trim() : '';
+        const description = descIndex >= 0 && values[descIndex] ? values[descIndex] : '';
+        
+        if (isNaN(capacity) || capacity <= 0) {
+            console.warn(`Linha ${i+1} ignorada: capacidade inválida`);
+            continue;
+        }
+        
+        // Encontrar o supervisor pelo ID ou nome
+        let supervisorId = null;
+        if (supervisorIdRaw) {
+            const supervisorNum = parseInt(supervisorIdRaw);
+            if (!isNaN(supervisorNum)) {
+                // É um ID numérico
+                const supervisor = AppData.supervisors.find(s => s.id === supervisorNum);
+                if (supervisor) {
+                    supervisorId = supervisor.id;
+                }
+            } else {
+                // Pode ser um nome ou código
+                const supervisor = AppData.supervisors.find(
+                    s => s.name === supervisorIdRaw || s.idCode === supervisorIdRaw
+                );
+                if (supervisor) {
+                    supervisorId = supervisor.id;
+                }
+            }
+        }
+        
+        if (supervisorIdRaw && !supervisorId) {
+            console.warn(`Linha ${i+1}: Supervisor não encontrado, posto será criado sem supervisor`);
+        }
+        
+        // Verificar se já existe posto com mesmo nome
+        const existingWorkstation = AppData.workstations.find(w => w.name === name);
+        
+        if (existingWorkstation) {
+            // Atualizar posto existente
+            existingWorkstation.capacity = capacity;
+            existingWorkstation.warningThreshold = warningThreshold;
+            existingWorkstation.description = description;
+            
+            // Atualizar supervisor apenas se um válido foi fornecido
+            if (supervisorId) {
+                // Se está mudando de supervisor, atualizar as referências
+                if (existingWorkstation.supervisorId !== supervisorId) {
+                    // Remover do supervisor antigo
+                    if (existingWorkstation.supervisorId) {
+                        const oldSupervisor = AppData.supervisors.find(s => s.id === existingWorkstation.supervisorId);
+                        if (oldSupervisor && oldSupervisor.workstationIds) {
+                            oldSupervisor.workstationIds = oldSupervisor.workstationIds.filter(
+                                id => id !== existingWorkstation.id
+                            );
+                        }
+                    }
+                    
+                    // Adicionar ao novo supervisor
+                    const newSupervisor = AppData.supervisors.find(s => s.id === supervisorId);
+                    if (newSupervisor) {
+                        if (!newSupervisor.workstationIds) {
+                            newSupervisor.workstationIds = [];
+                        }
+                        
+                        if (!newSupervisor.workstationIds.includes(existingWorkstation.id)) {
+                            newSupervisor.workstationIds.push(existingWorkstation.id);
+                        }
+                    }
+                    
+                    existingWorkstation.supervisorId = supervisorId;
+                }
+            }
+            
+            existingWorkstation.updatedAt = now;
+        } else {
+            // Criar novo posto
+            const newId = AppData.lastWorkstationId + 1;
+            const newWorkstation = {
+                id: newId,
+                name: name,
+                capacity: capacity,
+                warningThreshold: warningThreshold,
+                description: description,
+                supervisorId: supervisorId,
+                createdAt: now,
+                updatedAt: now
+            };
+            
+            AppData.workstations.push(newWorkstation);
+            AppData.lastWorkstationId = newId;
+            
+            // Associar ao supervisor se houver
+            if (supervisorId) {
+                const supervisor = AppData.supervisors.find(s => s.id === supervisorId);
+                if (supervisor) {
+                    if (!supervisor.workstationIds) {
+                        supervisor.workstationIds = [];
+                    }
+                    
+                    supervisor.workstationIds.push(newId);
+                }
+            }
+        }
+        
+        count++;
+    }
+    
+    return { success: true, count };
+}
+
+// Função para importar funcionários
+function importEmployees(headers, lines) {
+    // Verificar cabeçalhos esperados
+    const requiredHeaders = ['Nome', 'Matrícula', 'Cargo', 'Status'];
+    
+    for (const header of requiredHeaders) {
+        if (!headers.some(h => h.trim() === header)) {
+            return { success: false, error: `Cabeçalho obrigatório não encontrado: ${header}` };
+        }
+    }
+    
+    // Índices das colunas
+    const nameIndex = headers.findIndex(h => h.trim() === 'Nome');
+    const idCodeIndex = headers.findIndex(h => h.trim() === 'Matrícula');
+    const birthDateIndex = headers.findIndex(h => h.trim() === 'DataNascimento');
+    const hireDateIndex = headers.findIndex(h => h.trim() === 'DataAdmissão');
+    const positionIndex = headers.findIndex(h => h.trim() === 'Cargo');
+    const statusIndex = headers.findIndex(h => h.trim() === 'Status');
+    const postoIdIndex = headers.findIndex(h => h.trim() === 'PostoID' || h.trim() === 'Posto');
+    const notesIndex = headers.findIndex(h => h.trim() === 'Observações');
+    
+    let count = 0;
+    const now = new Date().toISOString();
+    
+    // Processar linhas de dados (pular cabeçalho)
+    for (let i = 1; i < lines.length; i++) {
+        if (lines[i].trim() === '') continue;
+        
+        const values = parseCSVLine(lines[i]);
+        
+        // Pular se não tiver os dados mínimos necessários
+        if (values.length <= Math.max(nameIndex, idCodeIndex, positionIndex, statusIndex) || 
+            !values[nameIndex] || !values[idCodeIndex] || !values[positionIndex] || !values[statusIndex]) {
+            console.warn(`Linha ${i+1} ignorada: dados insuficientes`);
+            continue;
+        }
+        
+        const name = values[nameIndex].trim();
+        const idCode = values[idCodeIndex].trim();
+        const position = values[positionIndex].trim();
+        const status = values[statusIndex].trim();
+        
+        const birthDate = birthDateIndex >= 0 && values[birthDateIndex] ? values[birthDateIndex].trim() : null;
+        const hireDate = hireDateIndex >= 0 && values[hireDateIndex] ? values[hireDateIndex].trim() : now.split('T')[0];
+        const notes = notesIndex >= 0 && values[notesIndex] ? values[notesIndex] : '';
+        
+        // Validar status
+        const validStatus = ['Ativo', 'Férias', 'Afastado', 'Inativo'];
+        if (!validStatus.includes(status)) {
+            console.warn(`Linha ${i+1}: Status inválido, usando "Ativo" como padrão`);
+        }
+        
+        // Verificar e resolver posto de trabalho
+        let workstationId = null;
+        if (postoIdIndex >= 0 && values[postoIdIndex]) {
+            const postoValue = values[postoIdIndex].trim();
+            const postoNum = parseInt(postoValue);
+            
+            if (!isNaN(postoNum)) {
+                // É um ID numérico
+                const workstation = AppData.workstations.find(w => w.id === postoNum);
+                if (workstation) {
+                    workstationId = workstation.id;
+                }
+            } else {
+                // Pode ser um nome
+                const workstation = AppData.workstations.find(w => w.name === postoValue);
+                if (workstation) {
+                    workstationId = workstation.id;
+                }
+            }
+            
+            if (!workstationId) {
+                console.warn(`Linha ${i+1}: Posto de trabalho não encontrado`);
+            }
+        }
+        
+        // Verificar se já existe funcionário com mesma matrícula
+        const existingEmployee = AppData.employees.find(e => e.idCode === idCode);
+        
+        if (existingEmployee) {
+            // Atualizar funcionário existente
+            existingEmployee.name = name;
+            existingEmployee.birthDate = birthDate;
+            existingEmployee.hireDate = hireDate;
+            existingEmployee.position = position;
+            existingEmployee.status = validStatus.includes(status) ? status : 'Ativo';
+            existingEmployee.notes = notes;
+            existingEmployee.updatedAt = now;
+            
+            // Se há posto especificado e diferente do atual
+            if (workstationId) {
+                const currentAllocation = AppData.allocations.find(
+                    a => a.employeeId === existingEmployee.id && a.endDate === null
+                );
+                
+                if (currentAllocation && currentAllocation.workstationId !== workstationId) {
+                    // Encerrar alocação atual
+                    currentAllocation.endDate = now;
+                    
+                    // Criar nova alocação
+                    const newAllocationId = AppData.lastAllocationId + 1;
+                    const newAllocation = {
+                        id: newAllocationId,
+                        employeeId: existingEmployee.id,
+                        workstationId: workstationId,
+                        startDate: now,
+                        endDate: null,
+                        notes: "Transferência via importação"
+                    };
+                    
+                    AppData.allocations.push(newAllocation);
+                    AppData.lastAllocationId = newAllocationId;
+                } else if (!currentAllocation && workstationId) {
+                    // Não tem alocação, criar nova
+                    const newAllocationId = AppData.lastAllocationId + 1;
+                    const newAllocation = {
+                        id: newAllocationId,
+                        employeeId: existingEmployee.id,
+                        workstationId: workstationId,
+                        startDate: now,
+                        endDate: null,
+                        notes: "Alocação via importação"
+                    };
+                    
+                    AppData.allocations.push(newAllocation);
+                    AppData.lastAllocationId = newAllocationId;
+                }
+            }
+        } else {
+            // Criar novo funcionário
+            const newId = AppData.lastEmployeeId + 1;
+            const newEmployee = {
+                id: newId,
+                name: name,
+                idCode: idCode,
+                birthDate: birthDate,
+                hireDate: hireDate,
+                position: position,
+                status: validStatus.includes(status) ? status : 'Ativo',
+                notes: notes,
+                createdAt: now,
+                updatedAt: now
+            };
+            
+            AppData.employees.push(newEmployee);
+            AppData.lastEmployeeId = newId;
+            
+            // Criar alocação inicial se houver posto especificado
+            if (workstationId) {
+                const newAllocationId = AppData.lastAllocationId + 1;
+                const newAllocation = {
+                    id: newAllocationId,
+                    employeeId: newId,
+                    workstationId: workstationId,
+                    startDate: now,
+                    endDate: null,
+                    notes: "Alocação inicial via importação"
+                };
+                
+                AppData.allocations.push(newAllocation);
+                AppData.lastAllocationId = newAllocationId;
+            }
+        }
+        
+        count++;
+    }
+    
+    return { success: true, count };
+}
+
+// Função para importar transferências
+function importAllocations(headers, lines) {
+    // Verificar cabeçalhos esperados
+    const requiredHeaders = ['FuncionarioID', 'PostoDestinoID', 'DataTransferencia'];
+    
+    for (const header of requiredHeaders) {
+        if (!headers.some(h => h.trim() === header || h.trim() === header.replace('ID', ''))) {
+            return { success: false, error: `Cabeçalho obrigatório não encontrado: ${header}` };
+        }
+    }
+    
+    // Índices das colunas
+    const employeeIndex = headers.findIndex(h => h.trim() === 'FuncionarioID' || h.trim() === 'Funcionario');
+    const fromIndex = headers.findIndex(h => h.trim() === 'PostoOrigemID' || h.trim() === 'PostoOrigem');
+    const toIndex = headers.findIndex(h => h.trim() === 'PostoDestinoID' || h.trim() === 'PostoDestino');
+    const dateIndex = headers.findIndex(h => h.trim() === 'DataTransferencia');
+    const notesIndex = headers.findIndex(h => h.trim() === 'Observações');
+    
+    let count = 0;
+    
+    // Processar linhas de dados (pular cabeçalho)
+    for (let i = 1; i < lines.length; i++) {
+        if (lines[i].trim() === '') continue;
+        
+        const values = parseCSVLine(lines[i]);
+        
+        // Pular se não tiver os dados mínimos necessários
+        if (values.length <= Math.max(employeeIndex, toIndex, dateIndex) || 
+            !values[employeeIndex] || !values[toIndex]) {
+            console.warn(`Linha ${i+1} ignorada: dados insuficientes`);
+            continue;
+        }
+        
+        const employeeValue = values[employeeIndex].trim();
+        const toValue = values[toIndex].trim();
+        let fromValue = fromIndex >= 0 && values[fromIndex] ? values[fromIndex].trim() : null;
+        const dateValue = dateIndex >= 0 && values[dateIndex] ? values[dateIndex].trim() : new Date().toISOString().split('T')[0];
+        const notes = notesIndex >= 0 && values[notesIndex] ? values[notesIndex] : 'Transferência via importação';
+        
+        // Determinar data da transferência
+        let transferDate;
+        try {
+            transferDate = new Date(`${dateValue}T00:00:00Z`).toISOString();
+        } catch (e) {
+            console.warn(`Linha ${i+1}: Data inválida, usando data atual`);
+            transferDate = new Date().toISOString();
+        }
+        
+        // Encontrar funcionário
+        let employeeId = null;
+        const employeeNum = parseInt(employeeValue);
+        
+        if (!isNaN(employeeNum)) {
+            // É um ID numérico
+            const employee = AppData.employees.find(e => e.id === employeeNum);
+            if (employee) {
+                employeeId = employee.id;
+            }
+        } else {
+            // Pode ser um nome ou matrícula
+            const employee = AppData.employees.find(e => 
+                e.name === employeeValue || e.idCode === employeeValue
+            );
+            if (employee) {
+                employeeId = employee.id;
+            }
+        }
+        
+        if (!employeeId) {
+            console.warn(`Linha ${i+1} ignorada: Funcionário não encontrado`);
+            continue;
+        }
+        
+        // Encontrar posto de destino
+        let toWorkstationId = null;
+        const toNum = parseInt(toValue);
+        
+        if (!isNaN(toNum)) {
+            // É um ID numérico
+            const workstation = AppData.workstations.find(w => w.id === toNum);
+            if (workstation) {
+                toWorkstationId = workstation.id;
+            }
+        } else {
+            // É um nome
+            const workstation = AppData.workstations.find(w => w.name === toValue);
+            if (workstation) {
+                toWorkstationId = workstation.id;
+            }
+        }
+        
+        if (!toWorkstationId) {
+            console.warn(`Linha ${i+1} ignorada: Posto de destino não encontrado`);
+            continue;
+        }
+        
+        // Processar posto de origem (se fornecido)
+        let fromWorkstationId = null;
+        
+        if (fromValue) {
+            const fromNum = parseInt(fromValue);
+            
+            if (!isNaN(fromNum)) {
+                // É um ID numérico
+                const workstation = AppData.workstations.find(w => w.id === fromNum);
+                if (workstation) {
+                    fromWorkstationId = workstation.id;
+                }
+            } else {
+                // É um nome
+                const workstation = AppData.workstations.find(w => w.name === fromValue);
+                if (workstation) {
+                    fromWorkstationId = workstation.id;
+                }
+            }
+        }
+        
+        // Se não foi especificado posto de origem, tentar encontrar alocação atual
+        if (!fromWorkstationId) {
+            const currentAllocation = AppData.allocations.find(
+                a => a.employeeId === employeeId && a.endDate === null
+            );
+            
+            if (currentAllocation) {
+                fromWorkstationId = currentAllocation.workstationId;
+            }
+        }
+        
+        // Encerrar alocação atual se houver
+        if (fromWorkstationId) {
+            const currentAllocations = AppData.allocations.filter(
+                a => a.employeeId === employeeId && a.workstationId === fromWorkstationId && a.endDate === null
+            );
+            
+            for (const allocation of currentAllocations) {
+                allocation.endDate = transferDate;
+            }
+        }
+        
+        // Criar nova alocação
+        const newAllocationId = AppData.lastAllocationId + 1;
+        const newAllocation = {
+            id: newAllocationId,
+            employeeId: employeeId,
+            workstationId: toWorkstationId,
+            startDate: transferDate,
+            endDate: null,
+            notes: notes
+        };
+        
+        AppData.allocations.push(newAllocation);
+        AppData.lastAllocationId = newAllocationId;
+        
+        count++;
+    }
+    
+    return { success: true, count };
+}
             };
             
             reader.onerror = function() {
