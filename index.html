@@ -3874,63 +3874,140 @@
         }
 
         // Funções para importação de dados
-        function processCSVImport(file, type) {
-            if (!file) {
-                showNotification('Por favor, selecione um arquivo CSV para importar.', 'warning');
+function processCSVImport(file, type) {
+    if (!file) {
+        showNotification('Por favor, selecione um arquivo CSV para importar.', 'warning');
+        return;
+    }
+    
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const csvContent = e.target.result;
+            
+            // Remover BOM UTF-8 se presente (para resolver problemas de encoding)
+            const content = csvContent.replace(/^\uFEFF/, '');
+            
+            // Dividir o conteúdo em linhas
+            const lines = content.split(/\r?\n/).filter(line => line.trim() !== '');
+            if (lines.length < 2) {
+                showNotification('O arquivo CSV não contém dados suficientes.', 'warning');
                 return;
             }
             
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                try {
-                    const csvContent = e.target.result;
-                    // Aqui você pode implementar a lógica para processar o CSV com base no tipo
-                    showNotification(`Arquivo CSV importado com sucesso: ${file.name}`, 'success');
-                    
-                    // Limpar seleção de arquivo após importação bem-sucedida
-                    document.getElementById('import-file').value = '';
-                    document.getElementById('file-name-display').textContent = 'Nenhum arquivo escolhido';
-                    document.getElementById('selected-file-info').classList.add('hidden');
-                    
-                    // Atualizar UI após importação
-                    updateUI();
-                } catch (error) {
-                    console.error('Erro ao processar arquivo CSV:', error);
-                    showNotification('Erro ao processar o arquivo CSV: ' + error.message, 'error');
-                }
-            };
+            // Extrair cabeçalho e verificar formato
+            const headers = parseCSVLine(lines[0]);
             
-            reader.onerror = function() {
-                showNotification('Erro ao ler o arquivo CSV.', 'error');
-            };
+            // Processar dados conforme o tipo
+            const importResult = processCSVData(type, headers, lines);
             
+            if (importResult.success) {
+                showNotification(`${importResult.count} registro(s) importado(s) com sucesso!`, 'success');
+                
+                // Limpar seleção de arquivo após importação bem-sucedida
+                document.getElementById('import-file').value = '';
+                document.getElementById('file-name-display').textContent = 'Nenhum arquivo escolhido';
+                document.getElementById('selected-file-info').classList.add('hidden');
+                
+                // Atualizar UI após importação
+                updateUI();
+            } else {
+                showNotification(`Erro na importação: ${importResult.error}`, 'error');
+            }
+        } catch (error) {
+            console.error('Erro ao processar arquivo CSV:', error);
+            showNotification('Erro ao processar o arquivo CSV: ' + error.message, 'error');
+        }
+    };
+    
+    reader.onerror = function() {
+        showNotification('Erro ao ler o arquivo CSV.', 'error');
+    };
+    
+    // Usar UTF-8 explicitamente para garantir caracteres especiais
+    reader.readAsText(file, 'UTF-8');
+}
             reader.readAsText(file);
         }
         
-        function processJSONBackup(file) {
-            if (!file) {
-                showNotification('Por favor, selecione um arquivo JSON para restaurar.', 'warning');
+function processJSONBackup(file) {
+    if (!file) {
+        showNotification('Por favor, selecione um arquivo JSON para restaurar.', 'warning');
+        return;
+    }
+    
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const backupData = JSON.parse(e.target.result);
+            
+            // Verificar se o backup tem a estrutura básica esperada
+            if (!backupData.supervisors || !backupData.workstations || 
+                !backupData.employees || !backupData.allocations) {
+                showNotification('O arquivo de backup não contém os dados necessários.', 'error');
                 return;
             }
             
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                try {
-                    const backupData = JSON.parse(e.target.result);
-                    // Implementar lógica para restaurar dados do backup
-                    showNotification('Backup restaurado com sucesso!', 'success');
-                    
-                    // Limpar seleção de arquivo após restauração bem-sucedida
-                    document.getElementById('import-backup').value = '';
-                    document.getElementById('backup-file-name-display').textContent = 'Nenhum arquivo escolhido';
-                    document.getElementById('backup-file-info').classList.add('hidden');
-                    
-                    // Atualizar UI após restauração
-                    updateUI();
-                } catch (error) {
-                    console.error('Erro ao processar arquivo de backup:', error);
-                    showNotification('Erro ao processar o arquivo de backup: ' + error.message, 'error');
-                }
+            // Confirmar com o usuário
+            if (!confirm('Esta ação substituirá todos os dados atuais. Deseja continuar?')) {
+                showNotification('Restauração cancelada pelo usuário.', 'info');
+                return;
+            }
+            
+            // Restaurar dados
+            AppData.supervisors = backupData.supervisors || [];
+            AppData.workstations = backupData.workstations || [];
+            AppData.employees = backupData.employees || [];
+            AppData.allocations = backupData.allocations || [];
+            
+            // Restaurar contadores de ID
+            AppData.lastSupervisorId = backupData.lastSupervisorId || 0;
+            AppData.lastWorkstationId = backupData.lastWorkstationId || 0;
+            AppData.lastEmployeeId = backupData.lastEmployeeId || 0;
+            AppData.lastAllocationId = backupData.lastAllocationId || 0;
+            
+            // Ajustar IDs para garantir que sejam pelo menos iguais ao maior ID existente
+            if (AppData.supervisors.length > 0) {
+                const maxSupervisorId = Math.max(...AppData.supervisors.map(s => s.id));
+                AppData.lastSupervisorId = Math.max(AppData.lastSupervisorId, maxSupervisorId);
+            }
+            
+            if (AppData.workstations.length > 0) {
+                const maxWorkstationId = Math.max(...AppData.workstations.map(w => w.id));
+                AppData.lastWorkstationId = Math.max(AppData.lastWorkstationId, maxWorkstationId);
+            }
+            
+            if (AppData.employees.length > 0) {
+                const maxEmployeeId = Math.max(...AppData.employees.map(e => e.id));
+                AppData.lastEmployeeId = Math.max(AppData.lastEmployeeId, maxEmployeeId);
+            }
+            
+            if (AppData.allocations.length > 0) {
+                const maxAllocationId = Math.max(...AppData.allocations.map(a => a.id));
+                AppData.lastAllocationId = Math.max(AppData.lastAllocationId, maxAllocationId);
+            }
+            
+            showNotification('Backup restaurado com sucesso!', 'success');
+            
+            // Limpar seleção de arquivo após restauração bem-sucedida
+            document.getElementById('import-backup').value = '';
+            document.getElementById('backup-file-name-display').textContent = 'Nenhum arquivo escolhido';
+            document.getElementById('backup-file-info').classList.add('hidden');
+            
+            // Atualizar UI após restauração
+            updateUI();
+        } catch (error) {
+            console.error('Erro ao processar arquivo de backup:', error);
+            showNotification('Erro ao processar o arquivo de backup: ' + error.message, 'error');
+        }
+    };
+    
+    reader.onerror = function() {
+        showNotification('Erro ao ler o arquivo de backup.', 'error');
+    };
+    
+    reader.readAsText(file, 'UTF-8');
+}
             };
             
             reader.onerror = function() {
