@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Download CSV - Funcionários</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin-top: 50px;
+            background-color: #f5f5f5;
+        }
+        .download-btn {
+            display: inline-block;
+            padding: 12px 24px;
+            background-color: #5D5CDE;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            font-size: 18px;
+            margin: 20px;
+            transition: background-color 0.3s;
+        }
+        .download-btn:hover {
+            background-color: #4F46E5;
+        }
+        .icon {
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Download do Modelo de Funcionários</h1>
+    <p>O download deve começar automaticamente em alguns segundos</p>
+    
+    <a id="download-link" class="download-btn">
+        <span class="icon">📥</span>Clique aqui se o download não iniciar
+    </a>
+    
+    <script>
+        // Conteúdo CSV com encoding correto
+        const csvContent = "Nome,Matrícula,DataNascimento,DataAdmissão,Cargo,Status,PostoID,Observações\nJoão Silva,EMP-001,1990-01-01,2022-01-10,Analista,Ativo,1,Observações\nMaria Souza,EMP-002,1985-05-15,2021-06-20,Técnico,Ativo,1,Observações";
+        
+        // Criar Blob com BOM para UTF-8
+        const BOM = new Uint8Array([0xEF, 0xBB, 0xBF]);
+        const blob = new Blob([BOM, csvContent], {type: 'text/csv;charset=utf-8'});
+        
+        // Criar URL e configurar link de download
+        const url = URL.createObjectURL(blob);
+        const downloadLink = document.getElementById('download-link');
+        downloadLink.href = url;
+        downloadLink.download = 'modelo_funcionarios.csv';
+        
+        // Auto-click para iniciar download automaticamente
+        window.onload = function() {
+            setTimeout(() => {
+                downloadLink.click();
+            }, 1000);
+        };
+    </script>
+</body>
+</html>
