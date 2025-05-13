@@ -3676,6 +3676,202 @@
                 }
             });
         }
+        
+        // Função para gerar e baixar templates CSV
+        function downloadTemplate(type) {
+            console.log(`Gerando template para: ${type}`);
+            let csvContent = '';
+            let fileName = '';
+            
+            switch (type) {
+                case 'supervisors':
+                    csvContent = 'Nome,Código/Matrícula\nSupervisor Exemplo,SUP-001\nJosé da Silva,SUP-002';
+                    fileName = 'modelo_supervisores.csv';
+                    break;
+                    
+                case 'workstations':
+                    csvContent = 'Nome,Capacidade,LimiteAlerta,SupervisorID,Descrição\nPosto A,10,80,1,Descrição do posto A\nPosto B,5,70,1,Descrição do posto B';
+                    fileName = 'modelo_postos.csv';
+                    break;
+                    
+                case 'employees':
+                    csvContent = 'Nome,Matrícula,DataNascimento,DataAdmissão,Cargo,Status,PostoID,Observações\nJoão Silva,EMP-001,1990-01-01,2022-01-10,Analista,Ativo,1,Observações\nMaria Souza,EMP-002,1985-05-15,2021-06-20,Técnico,Ativo,1,Observações';
+                    fileName = 'modelo_funcionarios.csv';
+                    break;
+                    
+                case 'allocations':
+                    csvContent = 'FuncionarioID,PostoOrigemID,PostoDestinoID,DataTransferencia,Observações\n1,,1,2022-01-10,Alocação inicial\n2,1,2,2022-03-15,Transferência para novo posto';
+                    fileName = 'modelo_transferencias.csv';
+                    break;
+                    
+                default:
+                    showNotification('Tipo de modelo não reconhecido', 'error');
+                    return;
+            }
+            
+            // Criar e baixar o arquivo
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            
+            const link = document.createElement('a');
+            link.setAttribute('href', url);
+            link.setAttribute('download', fileName);
+            link.style.visibility = 'hidden';
+            
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            showNotification(`Modelo de ${getTypeName(type)} baixado com sucesso`, 'success');
+        }
+        
+        // Função para exportar dados
+        function exportData(type) {
+            console.log(`Exportando dados do tipo: ${type}`);
+            let csvContent = '';
+            let fileName = '';
+            let data = [];
+            
+            const now = new Date();
+            const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            
+            switch (type) {
+                case 'supervisors':
+                    // Cabeçalho
+                    csvContent = 'ID,Nome,Código/Matrícula,DataCriação,ÚltimaAtualização\n';
+                    
+                    // Dados
+                    AppData.supervisors.forEach(supervisor => {
+                        csvContent += `${supervisor.id},${supervisor.name},${supervisor.idCode},${formatCSVDate(supervisor.createdAt)},${formatCSVDate(supervisor.updatedAt)}\n`;
+                    });
+                    
+                    fileName = `supervisores_${dateStr}.csv`;
+                    break;
+                    
+                case 'workstations':
+                    // Cabeçalho
+                    csvContent = 'ID,Nome,Capacidade,LimiteAlerta,SupervisorID,Descrição,DataCriação,ÚltimaAtualização\n';
+                    
+                    // Dados
+                    AppData.workstations.forEach(workstation => {
+                        csvContent += `${workstation.id},${workstation.name},${workstation.capacity},${workstation.warningThreshold},${workstation.supervisorId || ''},${escapeCSV(workstation.description || '')},${formatCSVDate(workstation.createdAt)},${formatCSVDate(workstation.updatedAt)}\n`;
+                    });
+                    
+                    fileName = `postos_${dateStr}.csv`;
+                    break;
+                    
+                case 'employees':
+                    // Cabeçalho
+                    csvContent = 'ID,Nome,Matrícula,DataNascimento,DataAdmissão,Cargo,Status,PostoAtual,Observações,DataCriação,ÚltimaAtualização\n';
+                    
+                    // Dados
+                    AppData.employees.forEach(employee => {
+                        const currentWorkstation = getCurrentWorkstation(employee.id);
+                        const workstationName = currentWorkstation ? currentWorkstation.name : 'Não alocado';
+                        
+                        csvContent += `${employee.id},${employee.name},${employee.idCode},${formatCSVDate(employee.birthDate)},${formatCSVDate(employee.hireDate)},${employee.position},${employee.status},${workstationName},${escapeCSV(employee.notes || '')},${formatCSVDate(employee.createdAt)},${formatCSVDate(employee.updatedAt)}\n`;
+                    });
+                    
+                    fileName = `funcionarios_${dateStr}.csv`;
+                    break;
+                    
+                case 'allocations':
+                    // Cabeçalho
+                    csvContent = 'ID,FuncionarioID,NomeFuncionario,PostoID,NomePosto,DataInício,DataFim,Observações\n';
+                    
+                    // Dados
+                    AppData.allocations.forEach(allocation => {
+                        const employee = AppData.employees.find(e => e.id === allocation.employeeId);
+                        const workstation = AppData.workstations.find(w => w.id === allocation.workstationId);
+                        
+                        if (employee && workstation) {
+                            csvContent += `${allocation.id},${allocation.employeeId},${employee.name},${allocation.workstationId},${workstation.name},${formatCSVDate(allocation.startDate)},${allocation.endDate ? formatCSVDate(allocation.endDate) : ''},${escapeCSV(allocation.notes || '')}\n`;
+                        }
+                    });
+                    
+                    fileName = `transferencias_${dateStr}.csv`;
+                    break;
+                    
+                default:
+                    showNotification('Tipo de exportação não reconhecido', 'error');
+                    return;
+            }
+            
+            // Criar e baixar o arquivo
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            
+            const link = document.createElement('a');
+            link.setAttribute('href', url);
+            link.setAttribute('download', fileName);
+            link.style.visibility = 'hidden';
+            
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            showNotification(`Dados de ${getTypeName(type)} exportados com sucesso`, 'success');
+        }
+        
+        // Função para exportar backup completo
+        function exportFullBackup() {
+            console.log("Exportando backup completo");
+            const now = new Date();
+            const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            const fileName = `backup_completo_${dateStr}.json`;
+            
+            // Preparar dados para o backup
+            const backupData = { ...AppData };
+            
+            // Criar e baixar o arquivo
+            const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            
+            const link = document.createElement('a');
+            link.setAttribute('href', url);
+            link.setAttribute('download', fileName);
+            link.style.visibility = 'hidden';
+            
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            showNotification('Backup completo exportado com sucesso', 'success');
+        }
+        
+        // Função auxiliar para formatar datas para CSV
+        function formatCSVDate(dateStr) {
+            if (!dateStr) return '';
+            try {
+                const date = new Date(dateStr);
+                return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+            } catch (error) {
+                console.error("Erro ao formatar data para CSV:", error);
+                return dateStr;
+            }
+        }
+        
+        // Função auxiliar para escapar strings em CSV
+        function escapeCSV(text) {
+            if (!text) return '';
+            // Se o texto contém vírgulas, aspas ou quebras de linha, colocá-lo entre aspas duplas
+            // E substituir aspas duplas dentro do texto por duas aspas duplas
+            if (text.includes(',') || text.includes('"') || text.includes('\n')) {
+                return `"${text.replace(/"/g, '""')}"`;
+            }
+            return text;
+        }
+        
+        // Função auxiliar para obter o nome amigável do tipo de dados
+        function getTypeName(type) {
+            switch (type) {
+                case 'supervisors': return 'supervisores';
+                case 'workstations': return 'postos de trabalho';
+                case 'employees': return 'funcionários';
+                case 'allocations': return 'transferências';
+                default: return type;
+            }
+        }
 
         // Funções para importação de dados
         function processCSVImport(file, type) {
@@ -3957,6 +4153,48 @@
                     } else {
                         showNotification('Por favor, selecione um arquivo JSON para restaurar.', 'warning');
                     }
+                });
+                
+                // Botões de download de modelos
+                document.getElementById('template-supervisors')?.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    downloadTemplate('supervisors');
+                });
+                
+                document.getElementById('template-workstations')?.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    downloadTemplate('workstations');
+                });
+                
+                document.getElementById('template-employees')?.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    downloadTemplate('employees');
+                });
+                
+                document.getElementById('template-allocations')?.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    downloadTemplate('allocations');
+                });
+                
+                // Botões de exportação
+                document.getElementById('btn-export-supervisors')?.addEventListener('click', function() {
+                    exportData('supervisors');
+                });
+                
+                document.getElementById('btn-export-workstations')?.addEventListener('click', function() {
+                    exportData('workstations');
+                });
+                
+                document.getElementById('btn-export-employees')?.addEventListener('click', function() {
+                    exportData('employees');
+                });
+                
+                document.getElementById('btn-export-allocations')?.addEventListener('click', function() {
+                    exportData('allocations');
+                });
+                
+                document.getElementById('btn-export-all')?.addEventListener('click', function() {
+                    exportFullBackup();
                 });
                 
                 // Configurar eventos de transferência
