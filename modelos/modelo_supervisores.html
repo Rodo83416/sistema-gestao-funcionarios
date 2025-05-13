@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Download CSV - Supervisores</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin-top: 50px;
+            background-color: #f5f5f5;
+        }
+        .download-btn {
+            display: inline-block;
+            padding: 12px 24px;
+            background-color: #5D5CDE;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            font-size: 18px;
+            margin: 20px;
+            transition: background-color 0.3s;
+        }
+        .download-btn:hover {
+            background-color: #4F46E5;
+        }
+        .icon {
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Download do Modelo de Supervisores</h1>
+    <p>O download deve começar automaticamente em alguns segundos</p>
+    
+    <a id="download-link" class="download-btn">
+        <span class="icon">📥</span>Clique aqui se o download não iniciar
+    </a>
+    
+    <script>
+        // Variável para controlar se o download já foi iniciado
+        let downloadStarted = false;
+        
+        // Conteúdo CSV com encoding correto
+        const csvContent = "Nome,Código/Matrícula\nSupervisor Exemplo,SUP-001\nJosé da Silva,SUP-002";
+        
+        // Criar Blob com BOM para UTF-8
+        const BOM = new Uint8Array([0xEF, 0xBB, 0xBF]);
+        const blob = new Blob([BOM, csvContent], {type: 'text/csv;charset=utf-8'});
+        
+        // Criar URL e configurar link de download
+        const url = URL.createObjectURL(blob);
+        const downloadLink = document.getElementById('download-link');
+        downloadLink.href = url;
+        downloadLink.download = 'modelo_supervisores.csv';
+        
+        // Função de download para executar apenas uma vez
+        function initiateDownload() {
+            if (!downloadStarted) {
+                downloadStarted = true;
+                console.log("Iniciando download...");
+                // Iniciar download programaticamente
+                downloadLink.click();
+            }
+        }
+        
+        // Adicionar evento para o link de download manual também controlar a flag
+        downloadLink.addEventListener('click', function() {
+            downloadStarted = true;
+            console.log("Download iniciado pelo usuário");
+        });
+        
+        // Iniciar download após carregamento da página - com proteção
+        document.addEventListener('DOMContentLoaded', function() {
+            // Atraso para garantir que tudo esteja pronto
+            setTimeout(initiateDownload, 1500);
+        });
+    </script>
+</body>
+</html>
