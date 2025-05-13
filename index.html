@@ -4154,28 +4154,7 @@
                         showNotification('Por favor, selecione um arquivo JSON para restaurar.', 'warning');
                     }
                 });
-                
-                // Botões de download de modelos
-                document.getElementById('template-supervisors')?.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    downloadTemplate('supervisors');
-                });
-                
-                document.getElementById('template-workstations')?.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    downloadTemplate('workstations');
-                });
-                
-                document.getElementById('template-employees')?.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    downloadTemplate('employees');
-                });
-                
-                document.getElementById('template-allocations')?.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    downloadTemplate('allocations');
-                });
-                
+                                             
                 // Botões de exportação
                 document.getElementById('btn-export-supervisors')?.addEventListener('click', function() {
                     exportData('supervisors');
